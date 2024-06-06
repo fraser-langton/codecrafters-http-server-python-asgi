@@ -31,7 +31,7 @@ LifeSpanSendEvent = t.Union[
 ]
 
 
-@dataclass
+@dataclass(slots=True)
 class Response:
     status: int = field(default=200)
     headers: t.Dict[str, str] = field(default_factory=dict)
@@ -57,6 +57,18 @@ class Response:
         await send(response_body)
 
 
+class Request:
+    method: str
+    path: str
+    headers: t.Dict[str, str]
+    body: str = ""
+
+    def __init__(self, scope: ut.HTTPScope):
+        self.method = scope["method"]
+        self.path = scope["path"]
+        self.headers = {k.decode(): v.decode() for k, v in scope["headers"]}
+
+
 async def router(
     scope: ut.HTTPScope,
     event: ut.HTTPRequestEvent,
@@ -72,8 +84,9 @@ async def router(
         None
     """
     path: str = scope["path"]
+    request = Request(scope)
 
-    if re.match(r"/$", path):
+    if request.path == "/":
         response = Response(
             headers={"content-type": "text/plain"},
             body="Hello, world!",
@@ -83,6 +96,11 @@ async def router(
         response = Response(
             headers={"content-type": "text/plain"},
             body=echo_str,
+        )
+    elif request.path == "/user-agent":
+        response = Response(
+            headers={"content-type": "text/plain"},
+            body=request.headers["user-agent"],
         )
     else:
         response = Response(
