@@ -1,3 +1,4 @@
+import gzip
 import re
 import typing as t
 from dataclasses import dataclass, field
@@ -50,25 +51,37 @@ class Request:
     def __init__(self, scope: ut.HTTPScope, body: bytes | None = None):
         self.method = scope["method"]
         self.path = scope["path"]
-        self.headers = {k.decode(): v.decode() for k, v in scope["headers"]}
+        self.headers = {k.decode().lower(): v.decode().lower() for k, v in scope["headers"]}
         self.scope = scope
         if body is not None:
             self.body = body.decode()
 
 
 async def send_response(
+    scope: ut.HTTPScope,
+    request: Request,
     response: Response,
     send: t.Callable[[HTTPSendEvent], t.Awaitable[None]],
 ) -> None:
     body = response.body.encode()
     encoded_headers: t.List[t.Tuple[bytes, bytes]] = [
         (
-            k.encode(),
-            v.encode(),
+            k.lower().encode(),
+            v.lower().encode(),
         )
         for k, v in response.headers.items()
     ]
     encoded_headers.append((b"content-length", str(len(body)).encode()))
+
+    encoding: t.Optional[str] = None
+    client_encodings: t.Set[str] = set(request.headers.get("accept-encoding", "").split(", "))
+    allowed_encodings: t.Set[str] = client_encodings & scope["state"]["app"].encoding
+    if allowed_encodings:
+        encoding = next(iter(allowed_encodings))
+
+    if encoding:
+        encoded_headers.append((b"content-encoding", encoding.encode()))
+        body = gzip.compress(body)
 
     response_start = {
         "type": "http.response.start",
@@ -167,8 +180,9 @@ async def http_handler(
         else:
             raise TypeError(f"Unexpected event type: {type(event)}")
 
-    response: Response = router(Request(scope, body=event["body"]))
-    await send_response(response, send)
+    request = Request(scope, body=event["body"])
+    response: Response = router(request)
+    await send_response(scope, request, response, send)
 
 
 async def lifespan_handler(
@@ -202,6 +216,7 @@ async def lifespan_handler(
 
 class App:
     directory: Path
+    encoding = {"gzip"}
 
     def __init__(self, directory: str):
         self.directory = Path(directory) if directory else Path.cwd()
