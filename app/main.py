@@ -29,6 +29,56 @@ LifeSpanSendEvent = Union[
 ]
 
 
+async def router(
+    scope: ut.HTTPScope,
+    event: ut.HTTPRequestEvent,
+    send: Callable[[HTTPSendEvent], Awaitable[None]],
+):
+    """
+    Args:
+        scope: http scope
+        event: a HTTPRequestEvent
+        send: an asynchronous callable that sends a HTTPSendEvent
+
+    Returns:
+        None
+    """
+    path: str = scope["path"]
+
+    if path == "/":
+        send_event: ut.HTTPResponseStartEvent = {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                [b"content-type", b"text/plain"],
+            ],
+        }
+        await send(send_event)
+
+        send_event: ut.HTTPResponseBodyEvent = {
+            "type": "http.response.body",
+            "body": b"Hello, world!",
+            "more_body": False,
+        }
+        await send(send_event)
+    else:
+        send_event: ut.HTTPResponseStartEvent = {
+            "type": "http.response.start",
+            "status": 404,
+            "headers": [
+                [b"content-type", b"text/plain"],
+            ],
+        }
+        await send(send_event)
+
+        send_event: ut.HTTPResponseBodyEvent = {
+            "type": "http.response.body",
+            "body": b"Not found",
+            "more_body": False,
+        }
+        await send(send_event)
+
+
 async def http_handler(
     scope: ut.HTTPScope,
     receive: Callable[[], Awaitable[HTTPReceiveEvent]],
@@ -63,20 +113,7 @@ async def http_handler(
         else:
             raise TypeError(f"Unexpected event type: {type(event)}")
 
-    send_event: ut.HTTPResponseStartEvent = {
-        "type": "http.response.start",
-        "status": 200,
-        "headers": [(b"Content-Type", b"text/plain")],
-        "trailers": False,
-    }
-    await send(send_event)
-
-    send_event: ut.HTTPResponseBodyEvent = {
-        "type": "http.response.body",
-        "body": b"Hello, world!",
-        "more_body": False,
-    }
-    await send(send_event)
+    await router(scope, event, send)
 
 
 async def lifespan_handler(
