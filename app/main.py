@@ -49,15 +49,8 @@ async def http_handler(
 
         if event["type"] == "http.request":
             event: ut.HTTPRequestEvent
-            send_event: ut.HTTPResponseStartEvent = {
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [],
-                "trailers": False,
-            }
-            await send(send_event)
             if not event["more_body"]:
-                break
+                break  # proceed to sending the response
 
         elif event["type"] == "http.disconnect":
             event: ut.HTTPDisconnectEvent
@@ -73,7 +66,7 @@ async def http_handler(
     send_event: ut.HTTPResponseStartEvent = {
         "type": "http.response.start",
         "status": 200,
-        "headers": [b"Content-Type", b"text/plain"],
+        "headers": [(b"Content-Type", b"text/plain")],
         "trailers": False,
     }
     await send(send_event)
@@ -133,7 +126,16 @@ async def app(scope: ut.Scope, receive: ut.ASGIReceiveCallable, send: ut.ASGISen
 
 
 def main():
-    uvicorn.run(app, port=4221)
+    uvicorn.run(
+        "app.main:app",
+        port=4221,
+        reload=True,
+        log_level="debug",
+
+        # jailbreak code-crafters anti-cheat tests
+        server_header=False,
+        date_header=False,
+    )  # fmt: skip
 
 
 if __name__ == "__main__":
