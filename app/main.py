@@ -1,19 +1,20 @@
-from typing import Awaitable, Callable, Union
+import re
+import typing as t
 
 import uvicorn
 import uvicorn._types as ut
 
-HTTPReceiveEvent = Union[
+HTTPReceiveEvent = t.Union[
     ut.HTTPRequestEvent,
     ut.HTTPDisconnectEvent,
 ]
 
-LifeSpanReceiveEvent = Union[
+LifeSpanReceiveEvent = t.Union[
     ut.LifespanStartupEvent,
     ut.LifespanShutdownEvent,
 ]
 
-HTTPSendEvent = Union[
+HTTPSendEvent = t.Union[
     ut.HTTPResponseStartEvent,
     ut.HTTPResponseBodyEvent,
     ut.HTTPResponseTrailersEvent,
@@ -21,7 +22,7 @@ HTTPSendEvent = Union[
     ut.HTTPDisconnectEvent,
 ]
 
-LifeSpanSendEvent = Union[
+LifeSpanSendEvent = t.Union[
     ut.LifespanStartupCompleteEvent,
     ut.LifespanStartupFailedEvent,
     ut.LifespanShutdownCompleteEvent,
@@ -32,7 +33,7 @@ LifeSpanSendEvent = Union[
 async def router(
     scope: ut.HTTPScope,
     event: ut.HTTPRequestEvent,
-    send: Callable[[HTTPSendEvent], Awaitable[None]],
+    send: t.Callable[[HTTPSendEvent], t.Awaitable[None]],
 ):
     """
     Args:
@@ -45,44 +46,61 @@ async def router(
     """
     path: str = scope["path"]
 
-    if path == "/":
-        send_event: ut.HTTPResponseStartEvent = {
+    if re.match(r"/$", path):
+        response_start = {
             "type": "http.response.start",
             "status": 200,
             "headers": [
                 [b"content-type", b"text/plain"],
             ],
         }
-        await send(send_event)
+        await send(response_start)
 
-        send_event: ut.HTTPResponseBodyEvent = {
+        response_body = {
             "type": "http.response.body",
             "body": b"Hello, world!",
             "more_body": False,
         }
-        await send(send_event)
+        await send(response_body)
+    elif match := re.match(r"/echo/(\w+)$", path):
+        echo_str = match.group(1)
+        response_start = {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                [b"content-type", b"text/plain"],
+            ],
+        }
+        await send(response_start)
+
+        response_body = {
+            "type": "http.response.body",
+            "body": echo_str.encode(),
+            "more_body": False,
+        }
+        await send(response_body)
     else:
-        send_event: ut.HTTPResponseStartEvent = {
+        response_start = {
             "type": "http.response.start",
             "status": 404,
             "headers": [
                 [b"content-type", b"text/plain"],
             ],
         }
-        await send(send_event)
+        await send(response_start)
 
-        send_event: ut.HTTPResponseBodyEvent = {
+        response_body = {
             "type": "http.response.body",
             "body": b"Not found",
             "more_body": False,
         }
-        await send(send_event)
+        await send(response_body)
 
 
 async def http_handler(
     scope: ut.HTTPScope,
-    receive: Callable[[], Awaitable[HTTPReceiveEvent]],
-    send: Callable[[HTTPSendEvent], Awaitable[None]],
+    receive: t.Callable[[], t.Awaitable[HTTPReceiveEvent]],
+    send: t.Callable[[HTTPSendEvent], t.Awaitable[None]],
 ) -> None:
     """
     Args:
@@ -118,8 +136,8 @@ async def http_handler(
 
 async def lifespan_handler(
     scope: ut.LifespanScope,
-    receive: Callable[[], Awaitable[LifeSpanReceiveEvent]],
-    send: Callable[[LifeSpanSendEvent], Awaitable[None]],
+    receive: t.Callable[[], t.Awaitable[LifeSpanReceiveEvent]],
+    send: t.Callable[[LifeSpanSendEvent], t.Awaitable[None]],
 ) -> None:
     """
     Args:
@@ -145,7 +163,11 @@ async def lifespan_handler(
             raise TypeError(f"Unexpected event type: {type(event)}")
 
 
-async def app(scope: ut.Scope, receive: ut.ASGIReceiveCallable, send: ut.ASGISendCallable) -> None:
+async def app(
+    scope: ut.Scope,
+    receive: ut.ASGIReceiveCallable,
+    send: ut.ASGISendCallable,
+) -> None:
     print(f"Beginning connection. Scope: ", scope)
 
     if scope["type"] == "lifespan":
