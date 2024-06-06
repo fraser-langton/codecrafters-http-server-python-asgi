@@ -47,11 +47,13 @@ class Request:
     body: str = ""
     scope: t.Dict[str, t.Any]
 
-    def __init__(self, scope: ut.HTTPScope):
+    def __init__(self, scope: ut.HTTPScope, body: bytes | None = None):
         self.method = scope["method"]
         self.path = scope["path"]
         self.headers = {k.decode(): v.decode() for k, v in scope["headers"]}
         self.scope = scope
+        if body is not None:
+            self.body = body.decode()
 
 
 async def send_response(
@@ -84,35 +86,50 @@ async def send_response(
 
 
 def router(request: Request) -> Response:
-    if request.path == "/":
-        response = Response(
-            headers={"content-type": "text/plain"},
-            body="Hello, world!",
-        )
-    elif match := re.match(r"/echo/(\w+)$", request.path):
-        echo_str = match.group(1)
-        response = Response(
-            headers={"content-type": "text/plain"},
-            body=echo_str,
-        )
-    elif request.path == "/user-agent":
-        response = Response(
-            headers={"content-type": "text/plain"},
-            body=request.headers["user-agent"],
-        )
-    elif match := re.match(r"/files/(\w+)$", request.path):
-        file_name = match.group(1)
-        file = request.scope["state"]["app"].directory / file_name
-        response = Response(
-            headers={"content-type": "application/octet-stream"},
-            body=file.read_text(),
-        )
-    else:
-        response = Response(
-            status=404,
-            headers={"content-type": "text/plain"},
-            body="Not Found",
-        )
+    match request.method, request.path:
+        case "GET", "/":
+            response = Response(
+                headers={"content-type": "text/plain"},
+                body="Hello, world!",
+            )
+
+        case "GET", path if (match := re.match(r"/echo/(\w+)$", path)):
+            echo_str = match.group(1)
+            response = Response(
+                headers={"content-type": "text/plain"},
+                body=echo_str,
+            )
+
+        case "GET", "/user-agent":
+            response = Response(
+                headers={"content-type": "text/plain"},
+                body=request.headers["user-agent"],
+            )
+
+        case "GET", path if (match := re.match(r"/files/(\w+)$", path)):
+            file_name = match.group(1)
+            file = request.scope["state"]["app"].directory / file_name
+            response = Response(
+                headers={"content-type": "application/octet-stream"},
+                body=file.read_text(),
+            )
+
+        case "POST", path if (match := re.match(r"/files/(\w+)$", path)):
+            file_name = match.group(1)
+            file = request.scope["state"]["app"].directory / file_name
+            file.write_text(request.body)
+            response = Response(
+                status=201,
+                headers={"content-type": "text/plain"},
+                body="OK",
+            )
+
+        case _:
+            response = Response(
+                status=404,
+                headers={"content-type": "text/plain"},
+                body="Not Found",
+            )
     return response
 
 
@@ -150,7 +167,7 @@ async def http_handler(
         else:
             raise TypeError(f"Unexpected event type: {type(event)}")
 
-    response: Response = router(Request(scope))
+    response: Response = router(Request(scope, body=event["body"]))
     await send_response(response, send)
 
 
