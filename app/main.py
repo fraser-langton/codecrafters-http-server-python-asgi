@@ -1,7 +1,9 @@
 import re
 import typing as t
 from dataclasses import dataclass, field
+from pathlib import Path
 
+import click
 import uvicorn
 import uvicorn._types as ut
 
@@ -102,6 +104,13 @@ async def router(
             headers={"content-type": "text/plain"},
             body=request.headers["user-agent"],
         )
+    elif match := re.match(r"/files/(\w+)$", path):
+        file_name = match.group(1)
+        file = scope["state"]["app"].directory / file_name
+        response = Response(
+            headers={"content-type": "application/octet-stream"},
+            body=file.read_text(),
+        )
     else:
         response = Response(
             status=404,
@@ -177,32 +186,45 @@ async def lifespan_handler(
             raise TypeError(f"Unexpected event type: {type(event)}")
 
 
-async def app(
-    scope: ut.Scope,
-    receive: ut.ASGIReceiveCallable,
-    send: ut.ASGISendCallable,
-) -> None:
-    print(f"Beginning connection. Scope: ", scope)
+class App:
+    directory: Path
 
-    if scope["type"] == "lifespan":
-        scope: ut.LifespanScope
-        await lifespan_handler(scope, receive, send)
-    elif scope["type"] == "http":
-        scope: ut.HTTPScope
-        await http_handler(scope, receive, send)
-    elif scope["type"] == "websocket":
-        raise NotImplementedError(f"Unsupported scope type: {scope['type']}")
-    else:
-        raise NotImplementedError(f"Unsupported scope type: {scope['type']}")
+    def __init__(self, directory: str):
+        self.directory = Path(directory) if directory else Path.cwd()
 
-    print(f"Ending connection")
+    async def __call__(
+        self,
+        scope: ut.Scope,
+        receive: ut.ASGIReceiveCallable,
+        send: ut.ASGISendCallable,
+    ) -> None:
+        print(f"Beginning connection. Scope: ", scope)
+
+        scope["state"] = {"app": self}
+
+        if scope["type"] == "lifespan":
+            scope: ut.LifespanScope
+            await lifespan_handler(scope, receive, send)
+        elif scope["type"] == "http":
+            scope: ut.HTTPScope
+            await http_handler(scope, receive, send)
+        elif scope["type"] == "websocket":
+            raise NotImplementedError(f"Unsupported scope type: {scope['type']}")
+        else:
+            raise NotImplementedError(f"Unsupported scope type: {scope['type']}")
+
+        print(f"Ending connection")
 
 
-def main():
+@click.command()
+@click.option("--directory")
+def main(directory):
+    app = App(directory=directory)
+
     uvicorn.run(
-        "app.main:app",
+        app,
         port=4221,
-        reload=True,
+        reload=False,
         log_level="debug",
 
         # jailbreak code-crafters anti-cheat tests
