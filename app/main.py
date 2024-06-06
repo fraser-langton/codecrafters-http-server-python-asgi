@@ -1,5 +1,6 @@
 import re
 import typing as t
+from dataclasses import dataclass, field
 
 import uvicorn
 import uvicorn._types as ut
@@ -30,6 +31,32 @@ LifeSpanSendEvent = t.Union[
 ]
 
 
+@dataclass
+class Response:
+    status: int = field(default=200)
+    headers: t.Dict[str, str] = field(default_factory=dict)
+    body: str = field(default="")
+
+    async def send(self, send: t.Callable[[HTTPSendEvent], t.Awaitable[None]]):
+        body = self.body.encode()
+        encoded_headers: t.List[t.Tuple[bytes, bytes]] = [(k.encode(), v.encode()) for k, v in self.headers.items()]
+        encoded_headers.append((b"content-length", str(len(body)).encode()))
+
+        response_start = {
+            "type": "http.response.start",
+            "status": self.status,
+            "headers": encoded_headers,
+        }
+        await send(response_start)
+
+        response_body = {
+            "type": "http.response.body",
+            "body": self.body.encode(),
+            "more_body": False,
+        }
+        await send(response_body)
+
+
 async def router(
     scope: ut.HTTPScope,
     event: ut.HTTPRequestEvent,
@@ -47,54 +74,23 @@ async def router(
     path: str = scope["path"]
 
     if re.match(r"/$", path):
-        response_start = {
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [
-                [b"content-type", b"text/plain"],
-            ],
-        }
-        await send(response_start)
-
-        response_body = {
-            "type": "http.response.body",
-            "body": b"Hello, world!",
-            "more_body": False,
-        }
-        await send(response_body)
+        response = Response(
+            headers={"content-type": "text/plain"},
+            body="Hello, world!",
+        )
     elif match := re.match(r"/echo/(\w+)$", path):
         echo_str = match.group(1)
-        response_start = {
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [
-                [b"content-type", b"text/plain"],
-            ],
-        }
-        await send(response_start)
-
-        response_body = {
-            "type": "http.response.body",
-            "body": echo_str.encode(),
-            "more_body": False,
-        }
-        await send(response_body)
+        response = Response(
+            headers={"content-type": "text/plain"},
+            body=echo_str,
+        )
     else:
-        response_start = {
-            "type": "http.response.start",
-            "status": 404,
-            "headers": [
-                [b"content-type", b"text/plain"],
-            ],
-        }
-        await send(response_start)
-
-        response_body = {
-            "type": "http.response.body",
-            "body": b"Not found",
-            "more_body": False,
-        }
-        await send(response_body)
+        response = Response(
+            status=404,
+            headers={"content-type": "text/plain"},
+            body="Not Found",
+        )
+    await response.send(send)
 
 
 async def http_handler(
