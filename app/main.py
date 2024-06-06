@@ -71,7 +71,6 @@ async def send_response(
         )
         for k, v in response.headers.items()
     ]
-    encoded_headers.append((b"content-length", str(len(body)).encode()))
 
     encoding: t.Optional[str] = None
     client_encodings: t.Set[str] = set(request.headers.get("accept-encoding", "").split(", "))
@@ -82,6 +81,8 @@ async def send_response(
     if encoding:
         encoded_headers.append((b"content-encoding", encoding.encode()))
         body = gzip.compress(body)
+
+    encoded_headers.append((b"content-length", str(len(body)).encode()))
 
     response_start = {
         "type": "http.response.start",
