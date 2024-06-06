@@ -92,7 +92,7 @@ async def send_response(
 
     response_body = {
         "type": "http.response.body",
-        "body": response.body.encode(),
+        "body": body,
         "more_body": False,
     }
     await send(response_body)
