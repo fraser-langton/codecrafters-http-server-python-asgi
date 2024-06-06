@@ -39,61 +39,57 @@ class Response:
     headers: t.Dict[str, str] = field(default_factory=dict)
     body: str = field(default="")
 
-    async def send(self, send: t.Callable[[HTTPSendEvent], t.Awaitable[None]]):
-        body = self.body.encode()
-        encoded_headers: t.List[t.Tuple[bytes, bytes]] = [(k.encode(), v.encode()) for k, v in self.headers.items()]
-        encoded_headers.append((b"content-length", str(len(body)).encode()))
-
-        response_start = {
-            "type": "http.response.start",
-            "status": self.status,
-            "headers": encoded_headers,
-        }
-        await send(response_start)
-
-        response_body = {
-            "type": "http.response.body",
-            "body": self.body.encode(),
-            "more_body": False,
-        }
-        await send(response_body)
-
 
 class Request:
     method: str
     path: str
     headers: t.Dict[str, str]
     body: str = ""
+    scope: t.Dict[str, t.Any]
 
     def __init__(self, scope: ut.HTTPScope):
         self.method = scope["method"]
         self.path = scope["path"]
         self.headers = {k.decode(): v.decode() for k, v in scope["headers"]}
+        self.scope = scope
 
 
-async def router(
-    scope: ut.HTTPScope,
-    event: ut.HTTPRequestEvent,
+async def send_response(
+    response: Response,
     send: t.Callable[[HTTPSendEvent], t.Awaitable[None]],
-):
-    """
-    Args:
-        scope: http scope
-        event: a HTTPRequestEvent
-        send: an asynchronous callable that sends a HTTPSendEvent
+) -> None:
+    body = response.body.encode()
+    encoded_headers: t.List[t.Tuple[bytes, bytes]] = [
+        (
+            k.encode(),
+            v.encode(),
+        )
+        for k, v in response.headers.items()
+    ]
+    encoded_headers.append((b"content-length", str(len(body)).encode()))
 
-    Returns:
-        None
-    """
-    path: str = scope["path"]
-    request = Request(scope)
+    response_start = {
+        "type": "http.response.start",
+        "status": response.status,
+        "headers": encoded_headers,
+    }
+    await send(response_start)
 
+    response_body = {
+        "type": "http.response.body",
+        "body": response.body.encode(),
+        "more_body": False,
+    }
+    await send(response_body)
+
+
+def router(request: Request) -> Response:
     if request.path == "/":
         response = Response(
             headers={"content-type": "text/plain"},
             body="Hello, world!",
         )
-    elif match := re.match(r"/echo/(\w+)$", path):
+    elif match := re.match(r"/echo/(\w+)$", request.path):
         echo_str = match.group(1)
         response = Response(
             headers={"content-type": "text/plain"},
@@ -104,9 +100,9 @@ async def router(
             headers={"content-type": "text/plain"},
             body=request.headers["user-agent"],
         )
-    elif match := re.match(r"/files/(\w+)$", path):
+    elif match := re.match(r"/files/(\w+)$", request.path):
         file_name = match.group(1)
-        file = scope["state"]["app"].directory / file_name
+        file = request.scope["state"]["app"].directory / file_name
         response = Response(
             headers={"content-type": "application/octet-stream"},
             body=file.read_text(),
@@ -117,7 +113,7 @@ async def router(
             headers={"content-type": "text/plain"},
             body="Not Found",
         )
-    await response.send(send)
+    return response
 
 
 async def http_handler(
@@ -154,7 +150,8 @@ async def http_handler(
         else:
             raise TypeError(f"Unexpected event type: {type(event)}")
 
-    await router(scope, event, send)
+    response: Response = router(Request(scope))
+    await send_response(response, send)
 
 
 async def lifespan_handler(
